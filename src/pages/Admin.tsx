@@ -294,3 +294,298 @@ export default function AdminPage() {
         </aside>
 
         <div className="min-w-0">
+
+          {tab === 'overview' && (
+            <div>
+              <div className="grid grid-cols-2 gap-4 md:grid-cols-3">
+                {statCards.map((s) => (
+                  <div key={s.label} className="rounded-2xl border border-emerald-100 bg-white p-5 shadow-sm">
+                    <span className={`mb-3 flex h-10 w-10 items-center justify-center rounded-xl text-white ${s.color}`}>
+                      <s.icon className="h-5 w-5" />
+                    </span>
+                    <p className="text-3xl font-bold text-emerald-950">{s.value}</p>
+                    <p className="text-sm text-stone-500">{s.label}</p>
+                  </div>
+                ))}
+              </div>
+              <div className="mt-6 rounded-2xl border border-emerald-100 bg-white p-5 shadow-sm">
+                <h2 className="mb-4 font-bold text-emerald-950">সাম্প্রতিক যুক্ত মসজিদ</h2>
+                {mosques.length === 0 ? (
+                  <EmptyState title="এখনো কোনো মসজিদ নেই" />
+                ) : (
+                  <div className="space-y-2">
+                    {[...mosques].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 5).map((m) => (
+                      <div key={m.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-emerald-50/60 px-4 py-3">
+                        <span className="font-semibold text-emerald-950">{m.nameBn} <span className="text-xs text-stone-500">({m.id})</span></span>
+                        <span className={`rounded-full px-3 py-1 text-xs font-bold ${m.status === 'approved' ? 'bg-emerald-100 text-emerald-800' : m.status === 'pending' ? 'bg-amber-100 text-amber-800' : 'bg-red-100 text-red-700'}`}>
+                          {m.status === 'approved' ? 'অনুমোদিত' : m.status === 'pending' ? 'অপেক্ষমাণ' : m.status === 'rejected' ? 'প্রত্যাখ্যাত' : 'আর্কাইভ'}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div className="mt-6 rounded-2xl border border-emerald-100 bg-white p-5 shadow-sm">
+                <h2 className="mb-4 font-bold text-emerald-950">জেলা অনুযায়ী মসজিদের পরিসংখ্যান</h2>
+                {byDistrict.map((d) => (
+                  <div key={d.district} className="mb-2 flex items-center gap-3 text-sm">
+                    <span className="w-28 shrink-0 font-semibold text-emerald-950">{d.district}</span>
+                    <div className="h-3 flex-1 overflow-hidden rounded-full bg-stone-100">
+                      <div className="h-full rounded-full bg-emerald-600" style={{ width: `${Math.min(100, d.count * 20)}%` }} />
+                    </div>
+                    <span className="w-10 text-right font-bold text-emerald-800">{d.count}টি</span>
+                  </div>
+                ))}
+                {byDistrict.length === 0 && <p className="text-sm text-stone-500">এখনো কোনো অনুমোদিত মসজিদ নেই।</p>}
+              </div>
+            </div>
+          )}
+
+          {['all', 'new', 'approved', 'pending', 'rejected', 'featured'].includes(tab) && (
+            <MosqueAdminTable
+              mosques={listForTab()}
+              onApprove={(m) => setStatus(m, 'approved')}
+              onReject={(m) => setStatus(m, 'rejected')}
+              onArchive={(m) => setStatus(m, 'archived')}
+              onToggle={toggle}
+              onEdit={(m) => {
+                setEditing(m);
+                setEditForm({ nameBn: m.nameBn, imamName: m.imamName, address: m.address, village: m.village, description: m.description });
+              }}
+              onDelete={deleteMosque}
+            />
+          )}
+
+          {tab === 'imam' && (
+            <div className="rounded-2xl border border-emerald-100 bg-white p-5 shadow-sm">
+              <h2 className="mb-1 font-bold text-emerald-950">ইমামের তথ্য</h2>
+              <p className="mb-4 text-sm text-stone-500">প্রতিটি মসজিদের বর্তমান ইমামের নাম — যাচাই হয়নি এমন নাম “তথ্য যাচাই চলছে” হিসেবে দেখায়। নামে ক্লিক করে সম্পাদনা করুন।</p>
+              <div className="space-y-2">
+                {mosques.map((m) => (
+                  <div key={m.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-stone-100 px-4 py-3">
+                    <div>
+                      <p className="font-semibold text-emerald-950">{m.nameBn}</p>
+                      <p className="text-xs text-stone-500">{m.upazila}, {m.district}</p>
+                    </div>
+                    <button
+                      onClick={() => {
+                        setEditing(m);
+                        setEditForm({ nameBn: m.nameBn, imamName: m.imamName, address: m.address, village: m.village, description: m.description });
+                      }}
+                      className="flex items-center gap-1.5 rounded-full bg-amber-50 px-3.5 py-2 text-sm font-bold text-amber-700 hover:bg-amber-100"
+                    >
+                      <User className="h-4 w-4" /> {m.imamName}
+                      {m.imamVerified && <ShieldCheck className="h-4 w-4 text-emerald-600" />}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {tab === 'locations' && (
+            <div className="rounded-2xl border border-emerald-100 bg-white p-5 shadow-sm">
+              <h2 className="mb-1 font-bold text-emerald-950">অবস্থান ব্যবস্থাপনা</h2>
+              <p className="mb-4 text-sm text-stone-500">
+                ৮টি বিভাগ, ৬৪টি জেলা ও উপজেলার ডেটাসেট অন্তর্ভুক্ত আছে। ইউনিয়নের পূর্ণ তালিকা
+                ব্যাকএন্ড সংযুক্ত হলে Locations শিট থেকে আসবে।
+              </p>
+              <div className="grid gap-3 sm:grid-cols-2">
+                {DIVISIONS.map((d) => (
+                  <div key={d.name} className="rounded-xl border border-stone-100 p-4">
+                    <p className="font-bold text-emerald-950">{d.name} বিভাগ</p>
+                    <p className="text-sm text-stone-500">{d.districts.length}টি জেলা</p>
+                    <p className="mt-1 text-xs leading-relaxed text-stone-400">
+                      {d.districts.map((x) => x.name).join(' · ')}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {tab === 'images' && (
+            <div className="rounded-2xl border border-emerald-100 bg-white p-5 shadow-sm">
+              <h2 className="mb-1 font-bold text-emerald-950">ছবি ব্যবস্থাপনা</h2>
+              <p className="mb-4 text-sm text-stone-500">প্রতিটি মসজিদের ছবি — মূল ছবি ও গ্যালারি। প্রোডাকশনে ছবিগুলো Google Drive-এর MOSQUE_PHOTOS ফোল্ডারে থাকে।</p>
+              <div className="grid gap-4 sm:grid-cols-2">
+                {mosques.map((m) => (
+                  <div key={m.id} className="overflow-hidden rounded-xl border border-stone-100">
+                    <img src={m.images[0]} alt={m.nameBn} className="h-36 w-full object-cover" />
+                    <div className="p-3">
+                      <p className="font-bold text-emerald-950">{m.nameBn}</p>
+                      <p className="text-xs text-stone-500">{m.images.length}টি ছবি · {m.representativePhoto ? 'প্রতিনিধিত্বমূলক ছবি' : 'জমাকৃত ছবি'}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {tab === 'reports' && (
+            <div className="rounded-2xl border border-emerald-100 bg-white p-5 shadow-sm">
+              <h2 className="mb-1 font-bold text-emerald-950">সংশোধনের আবেদন ও রিপোর্ট</h2>
+              <p className="mb-4 text-sm text-stone-500">দর্শকদের পাঠানো ভুল তথ্যের রিপোর্ট — যাচাই করে প্রয়োগ বা প্রত্যাখ্যান করুন।</p>
+              {corrections.length === 0 ? (
+                <EmptyState title="কোনো সংশোধনের আবেদন নেই" hint="দর্শকরা ভুল তথ্য রিপোর্ট করলে এখানে দেখা যাবে।" />
+              ) : (
+                <div className="space-y-3">
+                  {corrections.map((c) => (
+                    <div key={c.id} className="rounded-xl border border-stone-100 p-4">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <p className="font-bold text-emerald-950">{c.mosqueName} <span className="text-xs font-normal text-stone-500">({c.mosqueId})</span></p>
+                        <span className={`rounded-full px-3 py-1 text-xs font-bold ${c.status === 'open' ? 'bg-amber-100 text-amber-800' : c.status === 'resolved' ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-700'}`}>
+                          {c.status === 'open' ? 'খোলা' : c.status === 'resolved' ? 'সমাধান হয়েছে' : 'প্রত্যাখ্যাত'}
+                        </span>
+                      </div>
+                      <p className="mt-2 text-sm"><span className="font-semibold">ক্ষেত্র:</span> {c.field}</p>
+                      <p className="text-sm"><span className="font-semibold">সঠিক তথ্য:</span> {c.correctedValue}</p>
+                      <p className="text-sm text-stone-500">আবেদনকারী: {c.reporterName} · {c.createdAt}</p>
+                      {c.status === 'open' && (
+                        <div className="mt-3 flex gap-2">
+                          <button onClick={() => applyCorrection(c)} className="rounded-full bg-emerald-700 px-4 py-2 text-sm font-bold text-white">প্রয়োগ করুন</button>
+                          <button onClick={() => resolveCorrection(c, 'rejected')} className="rounded-full border border-red-200 px-4 py-2 text-sm font-bold text-red-600">প্রত্যাখ্যান</button>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {tab === 'logs' && (
+            <div className="rounded-2xl border border-emerald-100 bg-white p-5 shadow-sm">
+              <h2 className="mb-4 font-bold text-emerald-950">অ্যাক্টিভিটি লগ</h2>
+              {logs.length === 0 ? (
+                <EmptyState title="এখনো কোনো লগ নেই" />
+              ) : (
+                <div className="space-y-2">
+                  {logs.slice(0, 50).map((l) => (
+                    <div key={l.id} className="rounded-xl bg-stone-50 px-4 py-3 text-sm">
+                      <p className="font-semibold text-emerald-950">{l.action} — {l.target}</p>
+                      <p className="text-stone-600">{l.detail}</p>
+                      <p className="text-xs text-stone-400">{l.actor} · {new Date(l.at).toLocaleString('bn-BD')}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {tab === 'settings' && (
+            <div className="rounded-2xl border border-emerald-100 bg-white p-5 shadow-sm">
+              <h2 className="mb-4 font-bold text-emerald-950">সেটিংস</h2>
+              <div className="space-y-4 text-sm leading-relaxed text-stone-600">
+                <p><span className="font-bold text-emerald-950">অ্যাডমিন পাসওয়ার্ড পরিবর্তন:</span> বর্তমান পাসওয়ার্ডটি মুছে নতুন পাসওয়ার্ড সেট করতে নিচের বোতামটি চাপুন। পরের বার লগইনে নতুন পাসওয়ার্ড তৈরি করতে হবে।</p>
+                <button
+                  onClick={() => { changeAdminPassword(); setAuthed(false); setIsSetup(false); }}
+                  className="rounded-full border-2 border-amber-500 px-5 py-2.5 font-bold text-amber-700 hover:bg-amber-50"
+                >
+                  পাসওয়ার্ড রিসেট করুন
+                </button>
+                <p><span className="font-bold text-emerald-950">ব্যাকএন্ড:</span> Google Apps Script ব্যাকএন্ড সংযুক্ত করতে backend/SETUP_GUIDE.md অনুসরণ করুন। সংযুক্ত হলে নিবন্ধন, অনুমোদন ও ছবি Google Sheets ও Drive-এ সংরক্ষিত হবে।</p>
+                <p><span className="font-bold text-emerald-950">ডেমো ডেটা:</span> বর্তমান ডেটা এই ব্রাউজারের localStorage-এ আছে। ব্যাকএন্ড সংযুক্ত না হওয়া পর্যন্ত এটি ডেমো মোড।</p>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {editing && (
+        <div className="fixed inset-0 z-[60] flex items-end justify-center bg-black/50 p-4 sm:items-center">
+          <div className="w-full max-w-lg rounded-3xl bg-white p-6 shadow-xl">
+            <h2 className="mb-4 flex items-center gap-2 text-lg font-bold text-emerald-950">
+              <Pencil className="h-5 w-5" /> মসজিদ সম্পাদনা — {editing.id}
+            </h2>
+            <div className="space-y-3">
+              <label className="block text-sm font-bold text-emerald-950">মসজিদের নাম
+                <input value={editForm.nameBn} onChange={(e) => setEditForm({ ...editForm, nameBn: e.target.value })} className="mt-1 w-full rounded-xl border border-stone-300 px-3 py-2.5" />
+              </label>
+              <label className="block text-sm font-bold text-emerald-950">বর্তমান ইমামের নাম
+                <input value={editForm.imamName} onChange={(e) => setEditForm({ ...editForm, imamName: e.target.value })} className="mt-1 w-full rounded-xl border border-stone-300 px-3 py-2.5" />
+              </label>
+              <label className="block text-sm font-bold text-emerald-950">গ্রাম / মহল্লা
+                <input value={editForm.village} onChange={(e) => setEditForm({ ...editForm, village: e.target.value })} className="mt-1 w-full rounded-xl border border-stone-300 px-3 py-2.5" />
+              </label>
+              <label className="block text-sm font-bold text-emerald-950">ঠিকানা
+                <textarea value={editForm.address} onChange={(e) => setEditForm({ ...editForm, address: e.target.value })} rows={2} className="mt-1 w-full rounded-xl border border-stone-300 px-3 py-2.5" />
+              </label>
+              <label className="block text-sm font-bold text-emerald-950">বিবরণ
+                <textarea value={editForm.description} onChange={(e) => setEditForm({ ...editForm, description: e.target.value })} rows={3} className="mt-1 w-full rounded-xl border border-stone-300 px-3 py-2.5" />
+              </label>
+            </div>
+            <div className="mt-5 flex gap-2">
+              <button onClick={saveEdit} className="flex-1 rounded-full bg-emerald-700 py-3 font-bold text-white">সংরক্ষণ করুন</button>
+              <button onClick={() => setEditing(null)} className="rounded-full border-2 border-stone-300 px-6 py-3 font-bold text-stone-600">বাতিল</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MosqueAdminTable({
+  mosques,
+  onApprove,
+  onReject,
+  onArchive,
+  onToggle,
+  onEdit,
+  onDelete,
+}: {
+  mosques: Mosque[];
+  onApprove: (m: Mosque) => void;
+  onReject: (m: Mosque) => void;
+  onArchive: (m: Mosque) => void;
+  onToggle: (m: Mosque, field: 'verified' | 'featured') => void;
+  onEdit: (m: Mosque) => void;
+  onDelete: (m: Mosque) => void;
+}) {
+  if (mosques.length === 0) {
+    return <EmptyState title="এই তালিকায় কোনো মসজিদ নেই" hint="নতুন নিবন্ধন এলে এখানে দেখা যাবে।" />;
+  }
+  return (
+    <div className="space-y-3">
+      {mosques.map((m) => (
+        <div key={m.id} className="rounded-2xl border border-emerald-100 bg-white p-4 shadow-sm">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="flex gap-3">
+              <img src={m.images[0]} alt={m.nameBn} className="h-16 w-16 rounded-xl object-cover" />
+              <div>
+                <p className="font-bold text-emerald-950">{m.nameBn} <span className="text-xs font-normal text-stone-500">({m.id})</span></p>
+                <p className="text-sm text-stone-600">ইমাম: {m.imamName}</p>
+                <p className="text-xs text-stone-500">{m.village}, {m.upazila}, {m.district} · জমা: {m.createdAt}</p>
+                <p className="text-xs text-stone-500">জমাদানকারী: {m.submittedBy}</p>
+              </div>
+            </div>
+            <span className={`rounded-full px-3 py-1 text-xs font-bold ${m.status === 'approved' ? 'bg-emerald-100 text-emerald-800' : m.status === 'pending' ? 'bg-amber-100 text-amber-800' : m.status === 'rejected' ? 'bg-red-100 text-red-700' : 'bg-stone-200 text-stone-600'}`}>
+              {m.status === 'approved' ? 'অনুমোদিত' : m.status === 'pending' ? 'অপেক্ষমাণ' : m.status === 'rejected' ? 'প্রত্যাখ্যাত' : 'আর্কাইভ'}
+            </span>
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {m.status === 'pending' && (
+              <>
+                <button onClick={() => onApprove(m)} className="flex items-center gap-1 rounded-full bg-emerald-700 px-3.5 py-2 text-xs font-bold text-white"><CheckCircle2 className="h-3.5 w-3.5" /> অনুমোদন</button>
+                <button onClick={() => onReject(m)} className="flex items-center gap-1 rounded-full bg-red-600 px-3.5 py-2 text-xs font-bold text-white"><XCircle className="h-3.5 w-3.5" /> প্রত্যাখ্যান</button>
+              </>
+            )}
+            {m.status === 'approved' && (
+              <button onClick={() => onArchive(m)} className="flex items-center gap-1 rounded-full bg-stone-600 px-3.5 py-2 text-xs font-bold text-white"><Archive className="h-3.5 w-3.5" /> আর্কাইভ</button>
+            )}
+            <button onClick={() => onToggle(m, 'verified')} className={`flex items-center gap-1 rounded-full px-3.5 py-2 text-xs font-bold ${m.verified ? 'bg-emerald-100 text-emerald-800' : 'bg-stone-100 text-stone-600'}`}>
+              <ShieldCheck className="h-3.5 w-3.5" /> {m.verified ? 'যাচাইকৃত ✓' : 'যাচাই করুন'}
+            </button>
+            <button onClick={() => onToggle(m, 'featured')} className={`flex items-center gap-1 rounded-full px-3.5 py-2 text-xs font-bold ${m.featured ? 'bg-amber-100 text-amber-800' : 'bg-stone-100 text-stone-600'}`}>
+              <Star className="h-3.5 w-3.5" /> {m.featured ? 'বিশেষ ✓' : 'বিশেষ করুন'}
+            </button>
+            <button onClick={() => onEdit(m)} className="flex items-center gap-1 rounded-full bg-blue-100 px-3.5 py-2 text-xs font-bold text-blue-800"><Pencil className="h-3.5 w-3.5" /> সম্পাদনা</button>
+            <a href={`#/mosque/${m.slug}-${m.id.toLowerCase()}`} className="flex items-center gap-1 rounded-full bg-stone-100 px-3.5 py-2 text-xs font-bold text-stone-700"><Eye className="h-3.5 w-3.5" /> দেখুন</a>
+            <button onClick={() => onDelete(m)} className="flex items-center gap-1 rounded-full bg-red-50 px-3.5 py-2 text-xs font-bold text-red-600"><Trash2 className="h-3.5 w-3.5" /> মুছুন</button>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
