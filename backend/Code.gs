@@ -260,3 +260,253 @@ function searchMosques(params) {
   const matched = q ? rows.filter((r) => q.split(/\s+/).every((tok) => hay(r).includes(tok))) : rows;
   return { ok: true, total: matched.length, mosques: matched.map(publicMosque) };
 }
+
+function filterByLocation(params) {
+  let rows = rowsAsObjects(SHEETS.MOSQUES).filter((r) => String(r.Status) === 'approved');
+  ['Division', 'District', 'Upazila', 'UnionName'].forEach((key) => {
+    const paramKey = key.charAt(0).toLowerCase() + key.slice(1);
+    if (params[paramKey]) rows = rows.filter((r) => String(r[key]) === String(params[paramKey]));
+  });
+  if (params.sort === 'alpha') rows.sort((a, b) => String(a.NameBn).localeCompare(String(b.NameBn), 'bn'));
+  else rows.sort((a, b) => String(b.CreatedAt).localeCompare(String(a.CreatedAt)));
+  return { ok: true, total: rows.length, mosques: rows.map(publicMosque) };
+}
+
+function submitMosque(params) {
+  validateMosqueInput(params);
+  return withLock(() => {
+    const id = nextMosqueId();
+    const now = new Date();
+    const existing = rowsAsObjects(SHEETS.MOSQUES).concat(rowsAsObjects(SHEETS.SUBMISSIONS));
+    const norm = (s) => String(s || '').replace(/\s+/g, '').toLowerCase();
+    const dupes = existing.filter((r) =>
+      norm(r.NameBn) === norm(params.nameBn) &&
+      String(r.District) === String(params.district) &&
+      String(r.Upazila) === String(params.upazila) &&
+      norm(r.Village) === norm(params.village));
+    appendRow(SHEETS.SUBMISSIONS, [
+      id, params.nameBn, params.nameEn || '', params.imamName, false,
+      params.division, params.district, params.upazila, params.unionName || '',
+      params.village, params.address, params.establishedYear || '', params.description || '',
+      '', params.mapsUrl || '', params.committeeContact || '',
+      params.submittedBy, params.submitterMobile,
+      params.mainImageFileId || '', params.galleryFileIds || '',
+      false, false, false, 'pending', now, 0,
+    ]);
+    logActivity('Public', 'New submission', params.nameBn, id + ' — Pending');
+    return { ok: true, id: id, status: 'pending', duplicates: dupes.map((d) => ({ id: d.MosqueID, nameBn: d.NameBn })) };
+  });
+}
+
+function uploadMosqueImages(params) {
+  const mosqueId = String(params.mosqueId || '');
+  if (!mosqueId) throw new Error('mosqueId is required.');
+  const images = params.images || [];
+  if (!Array.isArray(images) || images.length === 0) throw new Error('No images provided.');
+  if (images.length > 7) throw new Error('Maximum 7 images per mosque.');
+  const photosFolderId = getSetting('PHOTOS_FOLDER_ID') || CONFIG.PHOTOS_FOLDER_ID;
+  const galleriesFolderId = getSetting('GALLERIES_FOLDER_ID') || CONFIG.GALLERIES_FOLDER_ID;
+  if (!photosFolderId) throw new Error('PHOTOS_FOLDER_ID is not configured.');
+  return withLock(() => {
+    const mainFolder = DriveApp.getFolderById(photosFolderId);
+    const galleryFolder = galleriesFolderId ? DriveApp.getFolderById(galleriesFolderId) : mainFolder;
+    const fileIds = [];
+    images.forEach((img, i) => {
+      if (!img.data) throw new Error('Image data missing for image ' + (i + 1));
+      const bytes = Utilities.base64Decode(String(img.data).replace(/^data:[^;]+;base64,/, ''));
+      const blob = Utilities.newBlob(bytes, img.mimeType || 'image/jpeg', mosqueId + '-' + (i + 1) + '.jpg');
+      const folder = i === 0 ? mainFolder : galleryFolder;
+      const file = folder.createFile(blob);
+      file.setDescription('Amar Masjid — ' + mosqueId);
+      file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+      fileIds.push(file.getId());
+    });
+    return { ok: true, mosqueId: mosqueId, mainImageFileId: fileIds[0], galleryFileIds: fileIds.slice(1).join(',') };
+  });
+}
+
+function requestCorrection(params) {
+  const required = ['mosqueId', 'field', 'correctedValue', 'reporterName'];
+  for (const key of required) {
+    if (!params[key] || !String(params[key]).trim()) throw new Error('Missing required field: ' + key);
+  }
+  appendRow(SHEETS.CORRECTIONS, [
+    'CR-' + Date.now(), params.mosqueId, params.mosqueName || '',
+    params.field, params.currentValue || '', params.correctedValue,
+    params.reporterName, params.reporterMobile || '', params.note || '',
+    'open', new Date(),
+  ]);
+  logActivity('Public', 'Correction request', params.mosqueName || params.mosqueId, params.field + ': ' + params.correctedValue);
+  return { ok: true, status: 'open' };
+}
+
+function getPendingSubmissions(params) {
+  requireAdmin(params);
+  const rows = rowsAsObjects(SHEETS.SUBMISSIONS).filter((r) => String(r.Status) === 'pending');
+  return { ok: true, total: rows.length, submissions: rows };
+}
+
+function approveMosque(params) {
+  const admin = requireAdmin(params);
+  const id = String(params.id || params.mosqueId || '');
+  if (!id) throw new Error('Mosque id is required.');
+  return withLock(() => {
+    const subRow = findSubmissionRow(id);
+    if (subRow < 0) throw new Error('Submission not found: ' + id);
+    const values = sheet(SHEETS.SUBMISSIONS).getRange(subRow, 1, 1, MOSQUE_HEADERS.length).getValues()[0];
+    values[23] = 'approved';
+    sheet(SHEETS.MOSQUES).appendRow(values);
+    sheet(SHEETS.SUBMISSIONS).getRange(subRow, 24, 1, 1).setValue('approved');
+    logActivity(admin, 'Approve mosque', values[1], id + ' — approved and published');
+    return { ok: true, id: id, status: 'approved' };
+  });
+}
+
+function rejectMosque(params) {
+  const admin = requireAdmin(params);
+  const id = String(params.id || params.mosqueId || '');
+  if (!id) throw new Error('Mosque id is required.');
+  return withLock(() => {
+    const subRow = findSubmissionRow(id);
+    if (subRow < 0) throw new Error('Submission not found: ' + id);
+    sheet(SHEETS.SUBMISSIONS).getRange(subRow, 24, 1, 1).setValue('rejected');
+    logActivity(admin, 'Reject mosque', id, 'Reason: ' + (params.reason || '—'));
+    return { ok: true, id: id, status: 'rejected' };
+  });
+}
+
+function updateMosque(params) {
+  const admin = requireAdmin(params);
+  const id = String(params.id || params.mosqueId || '');
+  if (!id) throw new Error('Mosque id is required.');
+  const editable = ['NameBn', 'NameEn', 'Division', 'District', 'Upazila', 'UnionName', 'Village', 'Address', 'EstablishedYear', 'Description', 'History', 'MapsUrl', 'CommitteeContact', 'Verified', 'Featured'];
+  return withLock(() => {
+    const row = findMosqueRow(id);
+    if (row < 0) throw new Error('Mosque not found: ' + id);
+    const headers = sheet(SHEETS.MOSQUES).getRange(1, 1, 1, MOSQUE_HEADERS.length).getValues()[0];
+    editable.forEach((key) => {
+      if (params[key] !== undefined) {
+        const col = headers.indexOf(key) + 1;
+        if (col > 0) sheet(SHEETS.MOSQUES).getRange(row, col).setValue(params[key]);
+      }
+    });
+    logActivity(admin, 'Update mosque', id, 'Fields updated: ' + editable.filter((k) => params[k] !== undefined).join(', '));
+    return { ok: true, id: id };
+  });
+}
+
+function updateImam(params) {
+  const admin = requireAdmin(params);
+  const id = String(params.id || params.mosqueId || '');
+  const imamName = String(params.imamName || '').trim();
+  if (!id || !imamName) throw new Error('Mosque id and imamName are required.');
+  return withLock(() => {
+    const row = findMosqueRow(id);
+    if (row < 0) throw new Error('Mosque not found: ' + id);
+    sheet(SHEETS.MOSQUES).getRange(row, 4).setValue(imamName);
+    sheet(SHEETS.MOSQUES).getRange(row, 5).setValue(true);
+    logActivity(admin, 'Update imam', id, 'Imam updated to: ' + imamName);
+    return { ok: true, id: id, imamName: imamName };
+  });
+}
+
+function archiveMosque(params) {
+  const admin = requireAdmin(params);
+  const id = String(params.id || params.mosqueId || '');
+  if (!id) throw new Error('Mosque id is required.');
+  return withLock(() => {
+    const row = findMosqueRow(id);
+    if (row < 0) throw new Error('Mosque not found: ' + id);
+    sheet(SHEETS.MOSQUES).getRange(row, 24).setValue('archived');
+    logActivity(admin, 'Archive mosque', id, 'Mosque archived');
+    return { ok: true, id: id, status: 'archived' };
+  });
+}
+
+function getDashboardStats(params) {
+  requireAdmin(params);
+  const mosques = rowsAsObjects(SHEETS.MOSQUES);
+  const subs = rowsAsObjects(SHEETS.SUBMISSIONS);
+  const approved = mosques.filter((r) => String(r.Status) === 'approved');
+  const districts = {};
+  approved.forEach((r) => { districts[r.District] = (districts[r.District] || 0) + 1; });
+  return {
+    ok: true,
+    totalMosques: mosques.length,
+    approved: approved.length,
+    pending: subs.filter((r) => String(r.Status) === 'pending').length,
+    rejected: subs.filter((r) => String(r.Status) === 'rejected').length,
+    districtsCovered: Object.keys(districts).length,
+    byDistrict: districts,
+    openCorrections: rowsAsObjects(SHEETS.CORRECTIONS).filter((r) => String(r.Status) === 'open').length,
+  };
+}
+
+function adminLogin(params) {
+  const username = String(params.username || '').trim();
+  const password = String(params.password || '');
+  if (!username || !password) throw new Error('Username and password are required.');
+  const admins = rowsAsObjects(SHEETS.ADMINS);
+  const admin = admins.find((a) => String(a.Username) === username);
+  if (!admin) throw new Error('Invalid username or password.');
+  if (sha256Hex(password + String(admin.Salt || '')) !== String(admin.PasswordHash || '')) {
+    throw new Error('Invalid username or password.');
+  }
+  const token = newToken();
+  const expires = Date.now() + CONFIG.SESSION_TTL_MINUTES * 60 * 1000;
+  const values = sheet(SHEETS.ADMINS).getDataRange().getValues();
+  for (let i = 1; i < values.length; i++) {
+    if (String(values[i][0]) === username) {
+      sheet(SHEETS.ADMINS).getRange(i + 1, 3).setValue(token);
+      sheet(SHEETS.ADMINS).getRange(i + 1, 4).setValue(expires);
+      break;
+    }
+  }
+  logActivity(username, 'Admin login', 'Dashboard', 'Login successful');
+  return { ok: true, token: token, expiresAt: expires, username: username };
+}
+
+function verifyAdminSession(params) {
+  const username = requireAdmin(params);
+  return { ok: true, valid: true, username: username };
+}
+
+function createBackup(params) {
+  requireAdmin(params);
+  const backupsFolderId = getSetting('BACKUPS_FOLDER_ID') || CONFIG.BACKUPS_FOLDER_ID;
+  if (!backupsFolderId) throw new Error('BACKUPS_FOLDER_ID is not configured.');
+  const spreadsheetId = getSetting('SPREADSHEET_ID') || CONFIG.SPREADSHEET_ID;
+  const file = DriveApp.getFileById(spreadsheetId);
+  const stamp = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd_HHmm');
+  const copy = file.makeCopy('AMAR_MASJID_BACKUP_' + stamp, DriveApp.getFolderById(backupsFolderId));
+  logActivity('Admin', 'Create backup', copy.getName(), 'Backup saved to DATABASE_BACKUPS');
+  return { ok: true, backupFileId: copy.getId(), name: copy.getName() };
+}
+
+function setupSheets() {
+  const spreadsheetId = CONFIG.SPREADSHEET_ID;
+  if (!spreadsheetId) throw new Error('Set CONFIG.SPREADSHEET_ID first.');
+  const book = SpreadsheetApp.openById(spreadsheetId);
+  const headers = {};
+  headers[SHEETS.MOSQUES] = MOSQUE_HEADERS;
+  headers[SHEETS.SUBMISSIONS] = MOSQUE_HEADERS;
+  headers[SHEETS.LOCATIONS] = ['Division', 'District', 'Upazila', 'UnionName'];
+  headers[SHEETS.ADMINS] = ['Username', 'PasswordHash', 'SessionToken', 'SessionExpires', 'Salt', 'CreatedAt'];
+  headers[SHEETS.LOGS] = ['Timestamp', 'Actor', 'Action', 'Target', 'Detail'];
+  headers[SHEETS.SETTINGS] = ['Key', 'Value'];
+  headers[SHEETS.CORRECTIONS] = ['CorrectionID', 'MosqueID', 'MosqueName', 'Field', 'CurrentValue', 'CorrectedValue', 'ReporterName', 'ReporterMobile', 'Note', 'Status', 'CreatedAt'];
+  Object.keys(headers).forEach((name) => {
+    let sh = book.getSheetByName(name);
+    if (!sh) sh = book.insertSheet(name);
+    sh.getRange(1, 1, 1, headers[name].length).setValues([headers[name]]);
+    sh.getRange(1, 1, 1, headers[name].length).setFontWeight('bold');
+    sh.setFrozenRows(1);
+  });
+  const settings = book.getSheetByName(SHEETS.SETTINGS);
+  settings.getRange(2, 1, 4, 2).setValues([
+    ['SPREADSHEET_ID', spreadsheetId],
+    ['PHOTOS_FOLDER_ID', CONFIG.PHOTOS_FOLDER_ID],
+    ['GALLERIES_FOLDER_ID', CONFIG.GALLERIES_FOLDER_ID],
+    ['BACKUPS_FOLDER_ID', CONFIG.BACKUPS_FOLDER_ID],
+  ]);
+}
