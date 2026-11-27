@@ -52,7 +52,10 @@ export default function App() {
   } else if (route === 'register') {
     content = <RegisterPage />;
   } else if (route === 'mosque' && param) {
-    const id = param.split('-').slice(-1)[0];
+    // URL is <slug>-<id>, and the id itself contains a dash (AM-000001),
+    // so the id is the LAST TWO hyphen-separated segments, not just the last one.
+    const parts = param.split('-');
+    const id = parts.length >= 2 ? parts.slice(-2).join('-') : param;
     content = <MosqueProfilePage id={id} />;
   } else if (route === 'admin') {
     content = <AdminPage />;
